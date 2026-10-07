@@ -13,6 +13,9 @@ cargo build --release
 cargo test
 ```
 
+## Downloads
+CI baut bei jedem Push Release-Binaries für Linux (x86_64), macOS (arm64, x86_64) und Windows (x86_64) als Workflow-Artefakte; bei Tags `v*` werden sie zusätzlich an ein GitHub-Release gehängt.
+
 ## Modi (Browser)
 Computer (3 Stärken, Engine im Server) · 2 Spieler lokal · Online-Raum (Link teilen, Reconnect per Token).
 LLM-Gegner und Cloudflare-Tunnel der Node-Version entfallen: ein LLM ist einfach ein weiterer HTTP-Client (siehe Protokoll, `legal_moves` liegt fertig im Zustand). Für Mitspieler außerhalb des LAN den Port freigeben oder einen eigenen Tunnel davor setzen.
