@@ -1,6 +1,6 @@
-/* Abalone-Client: Menü, Spielsteuerung (Computer / LLM / lokal / online). */
+/* Abalone-Client: Menü, Spielsteuerung (Computer / lokal / online). */
 (function () {
-  const R = AbaloneRules, L = AbaloneLLM;
+  const R = AbaloneRules;
   const $ = (id) => document.getElementById(id);
   const NAMES = { 1: 'Schwarz', 2: 'Weiß' };
   const store = {
@@ -29,9 +29,6 @@
   });
   function refreshOpts() { document.querySelectorAll('.opt').forEach((o) => { o.hidden = !o.dataset.for.split(',').includes(cfg.mode); }); }
   refreshOpts();
-  for (const [id, k, d] of [['llmUrl', 'llmUrl', 'https://api.openai.com/v1'], ['llmKey', 'llmKey', ''], ['llmModel', 'llmModel', 'gpt-4o-mini']]) {
-    $(id).value = store.get(k, d); $(id).addEventListener('input', () => store.set(k, $(id).value.trim()));
-  }
   $('btnMenu').onclick = () => { $('overlay').hidden = false; $('btnClose').hidden = !G; };
   $('btnClose').onclick = () => { $('overlay').hidden = true; };
   $('btnToMenu').onclick = () => { $('over').hidden = true; $('overlay').hidden = false; $('btnClose').hidden = !G; };
@@ -45,17 +42,17 @@
   };
   $('btnAgain').onclick = () => {
     $('over').hidden = true;
-    if (G.mode === 'online') return G.ws && G.ws.send(JSON.stringify({ t: 'rematch' }));
+    if (G.mode === 'online') return post('rematch');
     startLocalGame();
   };
 
   // ---------- Spielstart ----------
   function newGame(opts) {
     if (G) closeGame();
-    G = Object.assign({ state: R.setup(opts.layout), history: [], stack: [], over: null, busy: false, sel: [], anchors: new Map(), moves: null, mode: 'ai', human: 0, worker: null }, opts);
+    G = Object.assign({ state: R.setup(opts.layout), history: [], stack: [], over: null, busy: false, sel: [], anchors: new Map(), moves: null, mode: 'ai', human: 0 }, opts);
     G.moves = R.legalMoves(G.state);
     view.setFlip(G.flip); view.setState(G.state); view.setLast([]);
-    $('onlineCard').hidden = G.mode !== 'online'; $('llmLogCard').hidden = G.mode !== 'llm'; $('llmLog').textContent = '';
+    $('onlineCard').hidden = G.mode !== 'online';
     $('btnUndo').hidden = G.mode === 'online'; $('btnResign').hidden = G.mode === 'local';
     updateUI(); maybeBot();
   }
@@ -64,7 +61,7 @@
     if (cfg.mode === 'local') human = 0;
     newGame({ mode: cfg.mode, layout: cfg.layout, human, level: cfg.level, flip: cfg.mode === 'local' ? false : human === 2 });
   }
-  function closeGame() { if (G.worker) G.worker.terminate(); if (G.ws) { G.noReconnect = true; G.ws.close(); } G.dead = true; G = null; }
+  function closeGame() { G.dead = true; G = null; }
 
   // ---------- Eingabe ----------
   const canMove = () => G && !G.over && !G.busy && G.state && (
@@ -123,7 +120,7 @@
 
   // ---------- Zug ausführen ----------
   function play(mv) {
-    if (G.mode === 'online') { G.ws.send(JSON.stringify({ t: 'move', marbles: mv.marbles, dir: mv.dir })); G.sel = []; refreshSel(); return; }
+    if (G.mode === 'online') { post('move', { marbles: mv.marbles, dir: mv.dir }); G.sel = []; refreshSel(); return; }
     commit(mv);
     maybeBot();
   }
@@ -153,38 +150,14 @@
       if (!mv) { G.over = { winner: G.human, reason: 'nomoves' }; return updateUI(); }
       setTimeout(() => { if (G === token) { commit(mv); } }, 150);
     };
-    if (G.mode === 'ai') askAI(token, G.level, done);
-    else askLLM(token, done);
+    askAI(token, G.level, done);
   }
-  function askAI(token, level, cb) {
-    if (!token.worker) token.worker = new Worker('/ai-worker.js');
-    token.worker.onmessage = (e) => cb(e.data && R.findMove(token.state, e.data.marbles, e.data.dir));
-    token.worker.postMessage({ state: R.serialize(token.state), level });
-  }
-  async function askLLM(token, cb) {
-    const moves = token.moves, url = store.get('llmUrl', ''), key = store.get('llmKey', ''), model = store.get('llmModel', '');
-    let note = '', log = $('llmLog');
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        log.textContent = attempt ? `Neuer Versuch (${attempt + 1}/3) …` : 'LLM denkt nach …';
-        const r = await fetch('/api/llm', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url, key, model, messages: L.buildMessages(token.state, moves, note) }) });
-        const txt = await r.text();
-        let data; try { data = JSON.parse(txt); } catch (e) { throw new Error(txt.slice(0, 200)); }
-        if (!r.ok) throw new Error((data.error && (data.error.message || data.error)) || ('HTTP ' + r.status));
-        const content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-        const p = L.parseReply(content, moves.length);
-        if (token !== G) return;
-        if (p) { log.textContent = `${R.moveText(moves[p.index])}${p.reason ? ' – ' + p.reason : ''}`; return cb(moves[p.index]); }
-        note = 'Deine letzte Antwort war ungültig. Antworte NUR mit {"move": <Nummer aus der Liste>}.';
-      } catch (e) {
-        if (token !== G) return;
-        log.textContent = 'LLM-Fehler: ' + e.message; note = '';
-        if (/HTTP 4\d\d|401|403|Ungültige URL|Upstream/.test(e.message)) break;
-      }
-    }
-    toast('LLM-Antwort ungültig – Computer spielt diesen Zug');
-    askAI(token, 'medium', cb);
+  async function askAI(token, level, cb) {
+    try {
+      const r = await fetch('/api/ai', { method: 'POST', body: JSON.stringify({ state: R.serialize(token.state), level }) });
+      const m = await r.json();
+      cb(m && R.findMove(token.state, m.marbles, m.dir));
+    } catch (e) { if (token === G) { toast('Computer nicht erreichbar: ' + e.message); token.busy = false; updateUI(); } }
   }
 
   // ---------- Undo / Aufgeben / Drehen ----------
@@ -199,7 +172,7 @@
   $('btnFlip').onclick = () => { if (G) { G.flip = !G.flip; view.setFlip(G.flip); updateUI(); } };
   $('btnResign').onclick = () => {
     if (!G || G.over || !confirm('Wirklich aufgeben?')) return;
-    if (G.mode === 'online') return G.ws.send(JSON.stringify({ t: 'resign' }));
+    if (G.mode === 'online') return post('resign');
     G.over = { winner: R.other(G.human), reason: 'resign' }; updateUI();
   };
 
@@ -208,7 +181,6 @@
   function playerName(c) {
     if (!G) return NAMES[c];
     if (G.mode === 'ai') return c === G.human ? `Du (${NAMES[c]})` : `Computer (${NAMES[c]})`;
-    if (G.mode === 'llm') return c === G.human ? `Du (${NAMES[c]})` : `LLM (${NAMES[c]})`;
     if (G.mode === 'online') return c === G.human ? `Du (${NAMES[c]})` : G.human ? `Gegner (${NAMES[c]})` : NAMES[c];
     return NAMES[c];
   }
@@ -230,7 +202,7 @@
       sub = G.over.reason === 'resign' ? 'durch Aufgabe' : '';
       showOver();
     } else if (G.mode === 'online' && !G.bothHere) { st = 'Warte auf Mitspieler …'; sub = G.human ? 'Teile den Link rechts.' : ''; }
-    else if (G.busy) st = (G.mode === 'llm' ? 'LLM' : 'Computer') + ' denkt nach …';
+    else if (G.busy) st = 'Computer denkt nach …';
     else { st = `${playerName(s.turn)} ist am Zug`; if (canMove()) sub = 'Kugel(n) anklicken, dann Ziel wählen'; }
     $('status').textContent = st; $('sub').textContent = sub;
     $('moves').innerHTML = G.history.map((h) => `<li>${h.text}</li>`).join('');
@@ -247,77 +219,88 @@
     setTimeout(() => { if (G && G.over) $('over').hidden = false; }, 700);
   }
 
-  // ---------- Online ----------
-  let pub = '';
-  async function loadInfo() { try { const r = await (await fetch('/api/info')).json(); pub = r.publicUrl || ''; return r; } catch (e) { return {}; } }
-  function wsURL() { return (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'; }
-  function connect(first) {
-    const ws = new WebSocket(wsURL());
-    ws.onopen = () => ws.send(JSON.stringify(first));
-    ws.onmessage = (e) => onServer(JSON.parse(e.data), ws);
-    ws.onclose = () => {
-      const g = G;
-      if (!g || g.ws !== ws || g.noReconnect) return;
-      $('conn').textContent = 'Verbindung verloren – verbinde neu …';
-      setTimeout(() => { if (G === g && !g.noReconnect) g.ws = connect({ t: 'join', room: g.room, token: store.get('tok_' + g.room, '') }); }, 1500);
-    };
-    return ws;
+  // ---------- Online (HTTP/JSON, Long-Poll) ----------
+  const api = async (method, path, body) => {
+    const r = await fetch('/api/rooms' + path, { method, body: body ? JSON.stringify(body) : undefined });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw Object.assign(new Error(j.error || ('HTTP ' + r.status)), { status: r.status });
+    return j;
+  };
+  const tokenOf = (g) => store.get('tok_' + g.room, '');
+  async function post(action, extra) {
+    const g = G; if (!g || !g.room) return;
+    try { applySync(g, await api('POST', `/${g.room}/${action}`, Object.assign({ token: tokenOf(g) }, extra))); }
+    catch (e) { toast(e.message); }
   }
-  async function createOnline() {
-    await loadInfo();
-    const ws = connect({ t: 'create', layout: cfg.layout, color: cfg.color === 1 ? 'b' : cfg.color === 2 ? 'w' : 'r' });
-    newGame({ mode: 'online', layout: cfg.layout, human: 0, ws, flip: false, room: '' });
+  async function pollLoop(g) {
+    let since = 0;
+    while (G === g && !g.dead) {
+      try {
+        const m = await api('GET', `/${g.room}?since=${since}&wait=25&token=${encodeURIComponent(tokenOf(g))}`);
+        if (G !== g) return;
+        since = m.version; applySync(g, m);
+        $('conn').dataset.err = '';
+      } catch (e) {
+        if (G !== g) return;
+        if (e.status === 404) { toast('Raum nicht gefunden'); closeGame(); $('overlay').hidden = false; history.replaceState(null, '', '/'); return; }
+        $('conn').textContent = 'Verbindung verloren – verbinde neu …';
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
   }
-  async function joinOnline(code) {
-    await loadInfo();
-    const ws = connect({ t: 'join', room: code, token: store.get('tok_' + code, '') });
-    newGame({ mode: 'online', layout: 'standard', human: 0, ws, flip: false, room: code });
-  }
-  function shareLink() {
-    let base = pub || location.origin;
-    return base + '/?room=' + G.room;
-  }
-  function onServer(m, ws) {
-    if (!G || G.ws !== ws) return;
-    if (m.t === 'error') { toast(m.msg || 'Fehler'); if (m.code === 'noroom') { toast('Raum nicht gefunden'); closeGame(); $('overlay').hidden = false; history.replaceState(null, '', '/'); } return; }
-    if (m.t === 'joined') {
-      G.room = m.room; G.human = m.color;
+  async function startOnline(g, first) {
+    try {
+      const m = await first();
+      if (G !== g) return;
+      g.room = m.room;
       if (m.token) store.set('tok_' + m.room, m.token);
-      $('roomCode').textContent = m.room; history.replaceState(null, '', '/?room=' + m.room);
-      return;
-    }
-    if (m.t === 'sync') {
-      G.room = m.room; G.human = m.color; G.layout = m.layout;
-      G.state = R.deserialize(m.state); G.moves = m.over ? [] : R.legalMoves(G.state);
-      G.over = m.over; G.rematch = m.rematch; G.bothHere = m.players[1] && m.players[2];
-      G.history = m.history.map((h) => ({ text: h.marbles.map(R.label).join(',') + ' ' + R.DIR_NAMES[h.dir], by: h.by }));
-      G.sel = []; G.anchors = new Map(); G.stack = [];
-      const flip = G.human === 2;
-      view.setFlip(flip); G.flip = flip; view.setState(G.state);
-      const lastH = m.history[m.history.length - 1]; view.setLast(lastH ? lastCells(lastH) : []);
-      $('conn').textContent = G.bothHere ? 'Beide Spieler verbunden.' : 'Mitspieler nicht verbunden.';
-      $('roomCode').textContent = m.room;
-      $('shareUrl').value = shareLink();
-      const local = /^(localhost|127\.|\[::1\])/.test(new URL($('shareUrl').value).hostname);
-      $('pubWarn').hidden = !local;
-      $('shareBox').hidden = !!G.bothHere;
-      if (!m.over) $('over').hidden = true;
-      updateUI(); return;
-    }
-    if (m.t === 'move') {
-      const mv = R.findMove(G.state, m.marbles, m.dir);
-      if (!mv) return;
-      G.bothHere = true; commit(mv, m.by); G.over = m.over || G.over; G.rematch = {}; updateUI(); return;
-    }
+      history.replaceState(null, '', '/?room=' + m.room);
+      applySync(g, m);
+      pollLoop(g);
+    } catch (e) { toast(e.status === 404 ? 'Raum nicht gefunden' : e.message); if (G === g) { closeGame(); $('overlay').hidden = false; history.replaceState(null, '', '/'); } }
+  }
+  function createOnline() {
+    newGame({ mode: 'online', layout: cfg.layout, human: 0, flip: false, room: '' });
+    const g = G;
+    startOnline(g, () => api('POST', '', { layout: cfg.layout, color: cfg.color === 1 ? 'b' : cfg.color === 2 ? 'w' : 'r' }));
+  }
+  function joinOnline(code) {
+    newGame({ mode: 'online', layout: 'standard', human: 0, flip: false, room: code });
+    const g = G;
+    startOnline(g, () => api('POST', `/${code}/join`, { token: store.get('tok_' + code, '') }));
+  }
+  const shareLink = () => location.origin + '/?room=' + G.room;
+  function applySync(g, m) {
+    if (G !== g) return;
+    const prev = g.state, prevLen = g.history.length, fresh = g.version === undefined;
+    if (g.version !== undefined && m.version < g.version) return; // veraltete Antwort
+    g.version = m.version;
+    g.room = m.room; g.human = m.color; g.layout = m.layout;
+    g.state = R.deserialize(m.state); g.moves = m.over ? [] : R.legalMoves(g.state);
+    g.over = m.over; g.rematch = m.rematch; g.bothHere = m.players[1] && m.players[2] && m.seated[1] && m.seated[2];
+    g.history = m.history.map((h) => ({ text: h.marbles.map(R.label).join(',') + ' ' + R.DIR_NAMES[h.dir], by: h.by }));
+    g.sel = []; g.anchors = new Map(); g.stack = [];
+    const flip = g.human === 2;
+    g.flip = flip; view.setFlip(flip);
+    const lastH = m.history[m.history.length - 1];
+    const single = !fresh && m.history.length === prevLen + 1 && prev && prev.ply + 1 === g.state.ply;
+    if (single && lastH) { // genau ein neuer Zug: animieren
+      const mv = R.findMove(prev, lastH.marbles, lastH.dir);
+      view.setState(prev);
+      if (mv) { view.animate(R.applyMove(prev, mv).steps, mv.dir); if (mv.kind === 'sumito' && mv.off) toast('Kugel herausgeschoben!'); }
+      else view.setState(g.state);
+    } else view.setState(g.state);
+    view.setLast(lastH ? lastCells(lastH) : []);
+    view.setTargets([]); view.setGhost([]);
+    $('conn').textContent = g.bothHere ? 'Beide Spieler verbunden.' : 'Mitspieler nicht verbunden.';
+    $('roomCode').textContent = m.room;
+    $('shareUrl').value = shareLink();
+    $('shareBox').hidden = !!g.bothHere;
+    if (!m.over) $('over').hidden = true;
+    updateUI();
   }
   $('btnCopy').onclick = async () => { try { await navigator.clipboard.writeText($('shareUrl').value); toast('Link kopiert'); } catch (e) { $('shareUrl').select(); document.execCommand('copy'); toast('Link kopiert'); } };
   $('btnShare').onclick = () => { if (navigator.share) navigator.share({ title: 'Abalone', text: 'Spiel mit mir Abalone!', url: $('shareUrl').value }).catch(() => {}); else $('btnCopy').click(); };
-  $('btnPub').onclick = async () => {
-    const u = $('pubInput').value.trim();
-    const r = await fetch('/api/public-url', { method: 'POST', body: JSON.stringify({ url: u }) });
-    if (r.ok) { pub = (await r.json()).publicUrl; $('shareUrl').value = shareLink(); $('pubWarn').hidden = !!pub; toast('Öffentliche URL gesetzt'); }
-  };
-
   // ---------- Start ----------
   const roomParam = new URLSearchParams(location.search).get('room');
   if (roomParam) { cfg.mode = 'online'; $('overlay').hidden = true; joinOnline(roomParam.toUpperCase()); }

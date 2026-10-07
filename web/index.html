@@ -26,16 +26,12 @@
     </section>
     <aside class="side">
       <div class="card status"><div id="status">–</div><div id="sub" class="muted"></div></div>
-      <div class="card" id="llmLogCard" hidden><h3>LLM</h3><div id="llmLog" class="muted"></div></div>
       <div class="card" id="onlineCard" hidden>
         <h3>Online-Raum <span id="roomCode"></span></h3>
         <div id="shareBox">
           <input id="shareUrl" readonly>
           <div class="row"><button id="btnCopy">Link kopieren</button><button id="btnShare">Teilen…</button></div>
-          <div id="pubWarn" class="warn" hidden>
-            Dieser Link funktioniert nur auf deinem Rechner. Starte mit <code>npm run share</code> (Cloudflare-Tunnel) oder trage hier die öffentliche URL ein:
-            <div class="row"><input id="pubInput" placeholder="https://….trycloudflare.com"><button id="btnPub">Setzen</button></div>
-          </div>
+          <div class="muted small">Externe Gegner (Browser, <code>abalone bot</code>, eigene Programme) nutzen die HTTP-API – siehe docs/PROTOCOL.md. Für Mitspieler außerhalb des lokalen Netzes den Port freigeben oder einen Tunnel verwenden.</div>
         </div>
         <div id="conn" class="muted"></div>
       </div>
@@ -50,23 +46,16 @@
     <p class="muted">Schiebe 6 gegnerische Kugeln vom Brett.</p>
     <div class="tabs" id="modeTabs">
       <button data-mode="ai" class="on">🤖 Computer</button>
-      <button data-mode="llm">🧠 LLM</button>
       <button data-mode="local">👥 2 Spieler</button>
       <button data-mode="online">🌐 Online</button>
     </div>
 
-    <div class="opt" data-for="ai,llm,online"><label>Deine Farbe</label>
+    <div class="opt" data-for="ai,online"><label>Deine Farbe</label>
       <div class="seg" id="optColor"><button data-v="1" class="on">Schwarz</button><button data-v="2">Weiß</button><button data-v="0">Zufall</button></div></div>
     <div class="opt" data-for="ai"><label>Stärke</label>
       <div class="seg" id="optLevel"><button data-v="easy">Leicht</button><button data-v="medium" class="on">Mittel</button><button data-v="hard">Schwer</button></div></div>
-    <div class="opt" data-for="ai,llm,local,online"><label>Aufstellung</label>
+    <div class="opt" data-for="ai,local,online"><label>Aufstellung</label>
       <div class="seg" id="optLayout"><button data-v="standard" class="on">Standard</button><button data-v="belgian">Belgische Margerite</button></div></div>
-    <div class="opt llm" data-for="llm">
-      <label>API-URL (OpenAI-kompatibel)</label><input id="llmUrl" placeholder="https://api.openai.com/v1" autocomplete="off">
-      <label>API-Key</label><input id="llmKey" type="password" placeholder="sk-…" autocomplete="off">
-      <label>Modell</label><input id="llmModel" placeholder="gpt-4o-mini" autocomplete="off">
-      <p class="muted small">Gespeichert nur in diesem Browser. Der Aufruf läuft über deinen lokalen Server (kein CORS-Problem).</p>
-    </div>
     <div class="opt" data-for="online"><label>Raum-Code (zum Beitreten, optional)</label><input id="joinCode" placeholder="z. B. K7QM2" maxlength="5" style="text-transform:uppercase"></div>
 
     <div class="row end"><button id="btnClose" hidden>Zurück zum Spiel</button><button id="btnStart" class="primary big">Spiel starten</button></div>
@@ -85,8 +74,7 @@
   <div class="row center"><button id="btnAgain" class="primary">Nochmal</button><button id="btnToMenu">Menü</button></div></div></div>
 <div id="toast"></div>
 
-<script src="/shared/rules.js"></script>
-<script src="/shared/llm.js"></script>
+<script src="rules.js"></script>
 <script src="board.js"></script>
 <script src="app.js"></script>
 </body>
