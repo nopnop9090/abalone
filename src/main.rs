@@ -11,6 +11,24 @@ Verwendung:
                                              ohne --room wird ein neuer Raum angelegt
 ";
 
+/// LAN-Adresse über das Routing der Standard-Schnittstelle (UDP-connect sendet keine Pakete).
+fn lan_ip() -> Option<std::net::IpAddr> {
+    let s = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    s.connect("192.0.2.1:9").ok()?;
+    s.local_addr().ok().map(|a| a.ip()).filter(|ip| !ip.is_unspecified() && !ip.is_loopback())
+}
+
+fn print_urls(addr: std::net::SocketAddr) {
+    let port = addr.port();
+    println!("Abalone läuft. UI im Browser öffnen:");
+    if addr.ip().is_unspecified() {
+        println!("  lokal:  http://localhost:{}", port);
+        if let Some(ip) = lan_ip() { println!("  im LAN: http://{}:{}", ip, port); }
+    } else {
+        println!("  http://{}", addr);
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cmd = args.first().filter(|a| !a.starts_with('-')).cloned().unwrap_or_else(|| "serve".into());
@@ -21,7 +39,7 @@ fn main() {
         "serve" => {
             let bind = opt("--bind").or_else(|| std::env::var("PORT").ok().map(|p| format!("0.0.0.0:{}", p))).unwrap_or_else(|| "0.0.0.0:3000".into());
             let l = TcpListener::bind(&bind).unwrap_or_else(|e| { eprintln!("Bind {} fehlgeschlagen: {}", bind, e); std::process::exit(1) });
-            println!("Abalone läuft auf http://{}  (UI im Browser öffnen)", l.local_addr().unwrap());
+            print_urls(l.local_addr().unwrap());
             server::run(l);
         }
         "bot" => {
